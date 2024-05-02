@@ -3,9 +3,10 @@
 ```bash
 ./export_arm_template.sh <template_name> <resource_group_name>
 
-For Modifying Blob ARM Template
+# For Modifying Blob ARM Template
 
-python arm_modify.py "connection_string_here" "container_name_here" "blob_name_here"
+bash python arm_modify.py "connection_string_here" "container_name_here" "blob_name_here"
+
 
 Importing ARM Template
 

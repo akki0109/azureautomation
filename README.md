@@ -1,4 +1,5 @@
 # Exporting ARM Template of Master Resource Group to Azure Storage Blob and Create New Resource Group
+# account-name && --container-name && export resorcegroup name is static because all are one time defination quantity for whole lifecycle and will never change.
 ./export_arm_template.sh <template_name> <resource_group_name>
 
 # For Modifying Blob ARM Template

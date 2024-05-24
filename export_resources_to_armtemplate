@@ -1,0 +1,69 @@
+import os
+import tempfileimport os
+import tempfile
+import json
+from azure.storage.blob import BlobServiceClient
+import azure.functions as func
+
+def main(req: func.HttpRequest) -> func.HttpResponse:
+    # Get the template_name and resource_group_name from the request
+    req_body = req.get_json()
+    template_name = req_body.get('template_name')
+    resource_group_name = req_body.get('resource_group_name')
+
+    # Check if the resource group exists
+
+
+    # Export template                            #change master resource-group here as constant
+    template_file = f"{template_name}.json"
+    os.system(f"az  group export --resource-group TrionClientTemplate_ResourceGroup > {template_file}") 
+
+    # Upload template to Azure Storage container
+    blob_service_client = BlobServiceClient.from_connection_string(os.getenv('trion_STORAGE'))
+    blob_client = blob_service_client.get_blob_client(container="arm", blob=template_file)
+    with open(template_file, "rb") as data:
+        blob_client.upload_blob(data, overwrite=True)
+
+    # Remove the downloaded JSON file
+    os.remove(template_file)
+
+    # Create a new resource group print(f"Deployed ARM template for {blob_name} to resource group print(f"Deployed ARM template for {blob_name} to resource group print(f"Deployed ARM template for {blob_name} to reso print(f"Deployed ARM template for {blob_name} to resource groupurce group print(f"Deployed ARM template for {blob_name} to resource group
+    os.system(f"az group create --name {resource_group_name} --location eastus2")
+
+    return func.HttpResponse(
+        "Template exported, uploaded, and resource group created.",
+        status_code=200
+    )
+import json
+from azure.storage.blob import BlobServiceClient
+import azure.functions as func
+
+def main(req: func.HttpRequest) -> func.HttpResponse:
+    # Get the template_name and resource_group_name from the request
+    req_body = req.get_json()
+    template_name = req_body.get('template_name')
+    resource_group_name = req_body.get('resource_group_name')
+
+    # Check if the resource group exists
+
+
+    # Export template                            #change master resource-group here as constant
+    template_file = f"{template_name}.json"
+    os.system(f"az  group export --resource-group TrionClientTemplate_ResourceGroup > {template_file}") 
+
+    # Upload template to Azure Storage container
+    blob_service_client = BlobServiceClient.from_connection_string(os.getenv('trion_STORAGE'))
+    blob_client = blob_service_client.get_blob_client(container="arm", blob=template_file)
+    with open(template_file, "rb") as data:
+        blob_client.upload_blob(data, overwrite=True)
+
+    # Remove the downloaded JSON file
+    os.remove(template_file)
+
+    # Create a new resource group print(f"Deployed ARM template for {blob_name} to resource group print(f"Deployed ARM template for {blob_name} to resource group print(f"Deployed ARM template for {blob_name} to reso print(f"Deployed ARM template for {blob_name} to resource groupurce group print(f"Deployed ARM template for {blob_name} to resource group
+    os.system(f"az group create --name {resource_group_name} --location eastus2")
+
+    return func.HttpResponse(
+        "Template exported, uploaded, and resource group created.",
+        status_code=200
+    )

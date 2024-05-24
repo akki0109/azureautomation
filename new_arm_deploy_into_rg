@@ -1,0 +1,142 @@
+import logging
+import os
+import json
+import pyodbc
+import time
+from datetime import datetime
+import azure.functions as func
+from azure.storage.blob import BlobServiceClient, ContentSettings
+from azure.mgmt.resource import ResourceManagementClient
+from azure.mgmt.resource.resources.models import DeploymentMode
+from azure.identity import DefaultAzureCredential
+import secrets
+import string
+
+def main(myblob: func.InputStream):
+    try:
+        logging.info(f"Python blob trigger function processed blob \n"
+                     f"Name: {myblob.name}\n"
+                     f"Blob Size: {myblob.length} bytes\n"
+                     f"Blob URI: {myblob.uri}")
+    except AttributeError as e:
+        logging.error(f"Error accessing blob attributes: {e}")
+    
+    BlobTrigger3(myblob)
+
+def BlobTrigger3(myblob: func.InputStream):
+    container_name = "newarm"
+    blob_name_with_extension = myblob.name.split('/')[-1]
+    blob_names = os.path.splitext(blob_name_with_extension)[0]  # Remove the extension
+
+    # Use the existing resource group name
+    existing_resource_group_name = f"{blob_names}-resourcegroup"
+
+    servers_name = f"{blob_names[:14]}-trionsaas-server"  # Ensure server name is within Azure's limits
+
+    alphabet = string.ascii_letters + string.digits + string.punctuation
+    password = ''.join(secrets.choice(alphabet) for _ in range(12))
+    database_name = f"{blob_names}-TrionDB"
+    storageAccounts = f"{blob_names}_trionstorageaccount"
+    adminlogin = f"{database_name}_Admin"
+
+    # Fetch the ARM template from the blob
+    storage_connection_string = os.getenv("trion_STORAGE")
+    blob_service_client = BlobServiceClient.from_connection_string(storage_connection_string)
+    blob_client = blob_service_client.get_blob_client(container_name, blob_name_with_extension)
+
+    try:
+        arm_template = blob_client.download_blob().readall().decode('utf-8')
+        logging.info(f"ARM template content: {arm_template[:100]}...")  # Log the first 100 characters
+    except Exception as e:
+        logging.error(f"Error downloading ARM template blob: {e}")
+        return
+
+    # Authenticate with Azure using DefaultAzureCredential
+    try:
+        credential = DefaultAzureCredential()
+        resource_client = ResourceManagementClient(credential=credential, subscription_id="3b057a34-8415-48d3-93b3-25c39f3a47c5")
+    except Exception as e:
+        logging.error(f"Error with DefaultAzureCredential: {e}")
+        return
+
+    # Deploy the ARM template
+    deployment_properties = {
+        "mode": DeploymentMode.complete,  # Change deployment mode if needed
+        "template": arm_template,
+        "parameters": {
+            "servers_trionsaas_server_name": {"value": servers_name},
+            "vulnerabilityAssessments_Default_storageContainerPath": {"value": ""},
+            "adminPassword": {"value": password},
+            "administratorLogin": {"value": adminlogin},
+            "database_name": {"value": database_name},
+            "storageAccounts_trionstorageaccount_name": {"value": storageAccounts}
+        }
+    }
+
+    deployment_status = True  # Flag to track deployment status
+
+    try:
+        deployment_async_operation = resource_client.deployments.begin_create_or_update(
+            existing_resource_group_name,  # Use existing resource group name
+            f"deployment-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            deployment_properties
+        )
+        deployment_async_operation.wait()
+    except Exception as e:
+        logging.error(f"Error deploying ARM template: {e}")
+        deployment_status = False  # Deployment failed
+
+    if deployment_status:
+        logging.info(f"ARM template deployment completed for blob '{blob_name_with_extension}'. Resource group '{existing_resource_group_name}' updated.")
+        
+        # Check if server and database are created successfully
+        
+        if check_server_and_database_status(servers_name, database_name, password):
+            create_and_upload_json(blob_names, existing_resource_group_name, servers_name, password)
+        else:
+            logging.error(f"Server '{servers_name}' or database '{database_name}' creation failed.")
+    else:
+        logging.error(f"ARM template deployment failed for blob '{blob_name_with_extension}'.")
+
+def check_server_and_database_status(servers_name, database_name, password,adminlogin):
+    max_retries = 10
+    retry_interval_seconds = 10
+    for retry_count in range(max_retries):
+        try:
+            # Replace the connection string with your database connection string
+            conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={servers_name}.database.windows.net;DATABASE={database_name};UID={adminlogin};PWD={password}"
+            conn = pyodbc.connect(conn_str, timeout=5)  # Use a timeout to limit the connection attempt
+            conn.close()
+            return True  # Database ping successful
+        except Exception as e:
+            logging.error(f"Error pinging database (Attempt {retry_count + 1}/{max_retries}): {e}")
+            if retry_count < max_retries - 1:
+                time.sleep(retry_interval_seconds)  # Wait before retrying
+            else:
+                logging.error(f"Maximum retries reached. Database '{database_name}' not accessible.")
+                return False  # Database ping failed
+
+def create_and_upload_json(blob_names, existing_resource_group_name, servers_name, password,database_name,adminlogin):
+    # Create a dictionary with the required parameters
+    parameters_dict = {
+        "existing_resource_group_name": existing_resource_group_name,
+        "servers_name": servers_name,
+        "blob_names": blob_names,
+        "login": adminlogin,
+        "password": password,
+        "database_name": database_name
+    }
+
+    # Convert the dictionary to JSON
+    json_content = json.dumps(parameters_dict)
+
+    # Upload the JSON content to the 'databasetrigger' container
+    try:
+        blob_service_client = BlobServiceClient.from_connection_string(os.getenv("trion_STORAGE"))
+        container_client = blob_service_client.get_container_client("databasetrigger")
+        blob_client = container_client.get_blob_client(f"{blob_names}.json")
+        blob_client.upload_blob(json_content, overwrite=True, content_settings=ContentSettings(content_type='application/json'))
+        logging.info(f"JSON file '{blob_names}.json' uploaded to 'databasetrigger' container.")
+    except Exception as e:
+        logging.error(f"Error uploading JSON file to 'databasetrigger' container: {e}")
+        return

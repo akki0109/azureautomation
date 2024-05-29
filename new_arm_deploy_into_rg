@@ -120,6 +120,7 @@ def create_and_upload_json(blob_names, existing_resource_group_name, servers_nam
     # Create a dictionary with the required parameters
     parameters_dict = {
         "existing_resource_group_name": existing_resource_group_name,
+        "conn_str":conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={servers_name}.database.windows.net;DATABASE={database_name};UID={adminlogin};PWD={password}",
         "servers_name": servers_name,
         "blob_names": blob_names,
         "login": adminlogin,
